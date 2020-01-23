@@ -1,0 +1,141 @@
+#!/usr/bin/env node
+
+const puppeteer = require('puppeteer');
+const RequestInterceptor = require('puppeteer-request-spy').RequestInterceptor;
+const RequestSpy = require('puppeteer-request-spy').RequestSpy;
+const fs = require('fs');
+resolve = require('path').resolve
+
+
+require('yargs')
+    .scriptName("shutils")
+    .usage('$0 <cmd> [args]')
+    .option('shop', {
+        alias: 's',
+        describe: 'shopify store name'
+    })
+    .option('username', {
+        alias: 'u',
+        describe: 'shopify username'
+    })
+    .option('password', {
+        alias: 'p',
+        describe: 'shopify password'
+    })
+    .option('verbose', {
+        alias: 'v',
+        describe: 'increase log verbosity'
+    })
+    .option('debug', {
+        alias: 'd',
+        describe: 'outputs debug info to a folder (default: ./debug)'
+    })
+    .command('upload [filename]', 'file uploader for settings/files', (yargs) => {
+        yargs.positional('filename', {
+            type: 'string',
+            describe: 'the file to upload'
+        }).demandOption("filename")
+    }, function (argv) {
+        fs.mkdirSync(resolve("./debug"), { recursive: true });
+        const filePath = resolve(argv.filename)
+        fileUpload(filePath, argv.username, argv.password, argv.shop)
+    })
+    .command('version', 'display version information', (yargs) => {
+    }, function (argv) {
+        console.log("Current shutils version is 0.01")
+    })
+    .demandCommand(1, 'No command entered')
+    .demandOption(['shop', 'username', 'password'])
+    .help()
+    .argv
+
+async function fillEmail(page, email) {
+    console.log("Entering Email Address")
+    await page.type("#account_email", email)
+    await page.click("button[name='commit']")
+    await screenshot(page);
+}
+
+async function screenshot(page) {
+    console.log("Snapping screenshot");
+    const timeStamp = Date.now();
+    await page.screenshot({ path: `debug/${timeStamp}.png` });
+}
+
+async function makeDebugDir(path) {
+    console.log("Snapping screenshot");
+    const timeStamp = Date.now();
+    await page.screenshot({ path: `debug/${timeStamp}.png` });
+}
+
+async function fileUpload(filepath, email, password, domain) {
+    const browser = await puppeteer.launch({
+        args: [
+            '--incognito',
+        ],
+    });
+    const page = await browser.newPage();
+    console.log("Navigating to Shopify Login")
+    await page.goto('https://accounts.shopify.com/store-login');
+
+    // fill in domain
+    console.log("Setting Store Domain")
+    await page.type("#shop_domain", `${domain}.myshopify.com`)
+    await page.click("button[name='commit']")
+    await page.waitForNavigation({ waitUntil: 'networkidle0' });
+
+    // Check if email is stored
+    const currentEmail = await page.$("#account_email")
+    console.log(`Current Email: ${currentEmail.value}`)
+    await screenshot(page);
+
+    if (!currentEmail || currentEmail.value !== email) {
+        // fill in email
+        await fillEmail(page, email)
+        await screenshot(page);
+    } else {
+        console.log("Email previously filled")
+    }
+
+    console.log("Entering Password")
+    await page.type("#account_password", password)
+    await screenshot(page);
+
+    console.log("Logging In")
+    await page.click("button[name='commit']")
+    await page.waitForNavigation({ waitUntil: 'networkidle0' }).catch(async (err) => {
+        console.log(err);
+        await screenshot(page);
+        throw err;
+    });
+    await screenshot(page);
+
+    await page.goto(`https://${domain}.myshopify.com/admin/settings/files`, { waitUntil: 'networkidle0' })
+    await screenshot(page);
+
+    const fileSpy = new RequestSpy('files.json');
+    let requestInterceptor = new RequestInterceptor((testee, pattern) => testee.indexOf(pattern) > -1, console);
+    requestInterceptor.addSpy(fileSpy);
+    await page.setRequestInterception(true);
+    page.on('request', requestInterceptor.intercept.bind(requestInterceptor));
+
+    console.log("Choosing File")
+    const [fileChooser] = await Promise.all([
+        page.waitForFileChooser(),
+        page.evaluate(() => {
+            document.querySelector('input[name="commit"]').click();
+        })
+    ]);
+    await screenshot(page);
+    await fileChooser.accept([filepath]);
+    await screenshot(page);
+    await page.waitFor(10000)
+    await screenshot(page);
+
+    for (let match of fileSpy.getMatchedRequests()) {
+        let json = await match.response().json();
+        console.log(`File Uploaded: ${json["public_url"]}`);
+    }
+
+    await browser.close();
+};
