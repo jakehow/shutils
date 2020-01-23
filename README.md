@@ -1,3 +1,6 @@
+
+*** WARNING: This is unreleased/incomplete software, use at your own risk, or as an example only ***
+
 # shutils
 
 Catch all for utilities to handle missing Shopify API functionality.
@@ -10,7 +13,9 @@ This has been tested with Node v12.13.1, NPM 6.12.1, and yarn 1.19.2
 
 1. Clone the repo
 
-`git clone git@github.com:jakehow/shutils.git`
+```shell
+git clone git@github.com:jakehow/shutils.git
+```
 
 2. Install dependencies
 
